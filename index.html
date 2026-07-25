@@ -17,7 +17,10 @@
       This page requires JavaScript to display.
     </div>
   </noscript>
-  <style>
+  <!-- NOTE: the bundled app rewrites the document, which wipes any <style> placed
+       here. All animation CSS is therefore injected (and re-injected) from JS in
+       the script below. This block is kept only as a no-JS fallback reference. -->
+  <style id="anim-css-fallback">
     @media (prefers-reduced-motion: no-preference) {
       .reveal-init {
         opacity: 0;
@@ -29,12 +32,100 @@
         opacity: 1;
         transform: none;
       }
+      /* Word-by-word heading animation */
+      .rw {
+        display: inline-block;
+        opacity: 0;
+        transform: translateY(0.6em);
+        filter: blur(6px);
+        transition: opacity 0.7s cubic-bezier(.22,.61,.36,1), transform 0.7s cubic-bezier(.22,.61,.36,1), filter 0.7s ease;
+        will-change: opacity, transform, filter;
+      }
+      .rw-in {
+        opacity: 1;
+        transform: none;
+        filter: none;
+      }
+
+      /* --- Journey timeline "pipeline" --- */
+      .tl-progress {
+        position: absolute;
+        width: 2px;
+        border-radius: 2px;
+        background: linear-gradient(180deg, #E8A0B4 0%, #C97F94 55%, #8A4E59 100%);
+        box-shadow: 0 0 10px rgba(201, 127, 148, 0.55);
+        height: 0;
+        z-index: 1;
+      }
+      .tl-head {
+        position: absolute;
+        left: 50%;
+        bottom: -4px;
+        width: 9px;
+        height: 9px;
+        margin-left: -4.5px;
+        border-radius: 50%;
+        background: #8A4E59;
+        box-shadow: 0 0 0 4px rgba(232, 160, 180, 0.35);
+        opacity: 0;
+        transition: opacity 0.35s ease;
+      }
+      .tl-progress.tl-live .tl-head { opacity: 1; }
+
+      .tl-item {
+        opacity: 0.35;
+        transform: translateX(-14px);
+        transition: opacity 0.7s cubic-bezier(.22,.61,.36,1), transform 0.7s cubic-bezier(.22,.61,.36,1);
+      }
+      .tl-item-on {
+        opacity: 1;
+        transform: none;
+      }
+      .tl-icon {
+        transform: scale(0.72);
+        filter: saturate(0.25);
+        transition: transform 0.55s cubic-bezier(.34,1.56,.64,1), filter 0.55s ease;
+        transform-origin: 50% 50%;
+      }
+      .tl-item-on .tl-icon {
+        transform: scale(1);
+        filter: none;
+      }
     }
   </style>
   <script>
     (function () {
       var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       if (reduce) return;
+
+      // The bundled app replaces the whole document, deleting any <style> we put in
+      // <head>. So we inject our CSS from JS and keep re-injecting if it vanishes.
+      var ANIM_CSS = [
+        '.reveal-init{opacity:0;transform:translateY(38px);transition:opacity .9s cubic-bezier(.22,.61,.36,1),transform .9s cubic-bezier(.22,.61,.36,1);will-change:opacity,transform;}',
+        '.reveal-in{opacity:1 !important;transform:none !important;}',
+        '.rw{display:inline-block;opacity:0;transform:translateY(.6em);filter:blur(6px);transition:opacity .7s cubic-bezier(.22,.61,.36,1),transform .7s cubic-bezier(.22,.61,.36,1),filter .7s ease;will-change:opacity,transform,filter;}',
+        '.rw-in{opacity:1 !important;transform:none !important;filter:none !important;}',
+        '.tl-progress{position:absolute !important;width:2px;border-radius:2px;background:linear-gradient(180deg,#E8A0B4 0%,#C97F94 55%,#8A4E59 100%);box-shadow:0 0 10px rgba(201,127,148,.55);height:0;z-index:2;pointer-events:none;}',
+        '.tl-head{position:absolute;left:50%;bottom:-4px;width:9px;height:9px;margin-left:-4.5px;border-radius:50%;background:#8A4E59;box-shadow:0 0 0 4px rgba(232,160,180,.35);opacity:0;transition:opacity .35s ease;}',
+        '.tl-progress.tl-live .tl-head{opacity:1;}',
+        '.tl-item{opacity:.35;transform:translateX(-14px);transition:opacity .7s cubic-bezier(.22,.61,.36,1),transform .7s cubic-bezier(.22,.61,.36,1);}',
+        '.tl-item-on{opacity:1 !important;transform:none !important;}',
+        '.tl-icon{transform:scale(.72);filter:saturate(.25);transition:transform .55s cubic-bezier(.34,1.56,.64,1),filter .55s ease;transform-origin:50% 50%;}',
+        '.tl-item-on .tl-icon{transform:scale(1);filter:none;}'
+      ].join('\n');
+
+      function ensureStyles() {
+        var head = document.head || document.documentElement;
+        if (!head) return;
+        var tag = document.getElementById('anim-css-live');
+        if (tag && tag.parentNode) return;         // still there, nothing to do
+        tag = document.createElement('style');
+        tag.id = 'anim-css-live';
+        tag.textContent = ANIM_CSS;
+        head.appendChild(tag);
+      }
+      ensureStyles();
+      setInterval(ensureStyles, 1000);            // re-inject if the app wipes it
 
       var io = new IntersectionObserver(function (entries) {
         entries.forEach(function (e) {
@@ -48,7 +139,60 @@
         });
       }, { threshold: 0.14, rootMargin: '0px 0px -12% 0px' });
 
+      // Separate observer for headings: reveal their words one-by-one on scroll-in.
+      var hio = new IntersectionObserver(function (entries) {
+        entries.forEach(function (e) {
+          if (e.isIntersecting) {
+            var words = e.target.querySelectorAll('.rw');
+            for (var i = 0; i < words.length; i++) {
+              words[i].style.transitionDelay = (i * 70) + 'ms';
+              words[i].classList.add('rw-in');
+            }
+            hio.unobserve(e.target);
+          }
+        });
+      }, { threshold: 0.3, rootMargin: '0px 0px -8% 0px' });
+
+      // True when an element's children are all plain text nodes.
+      function isTextOnly(el) {
+        if (!el.childNodes.length) return false;
+        for (var c = 0; c < el.childNodes.length; c++) {
+          if (el.childNodes[c].nodeType !== 3) return false;
+        }
+        return true;
+      }
+
+      // Split a heading's text into per-word spans. Headings often wrap their text
+      // in a single styled <span>, so descend through single-child wrappers to find
+      // the element that actually holds the text, and split inside that one.
+      function prepHeading(h) {
+        if (h.__wordy) return false;
+        var host = h;
+        // Descend while there's exactly one element child and no stray text.
+        while (!isTextOnly(host) && host.children.length === 1 &&
+               host.textContent.trim() === host.children[0].textContent.trim()) {
+          host = host.children[0];
+        }
+        if (!isTextOnly(host)) return false;
+
+        var text = host.textContent.replace(/\s+/g, ' ').trim();
+        if (!text || text.length > 80) return false; // skip long paragraphs
+        h.__wordy = true;
+        var words = text.split(' ');
+        host.textContent = '';
+        for (var w = 0; w < words.length; w++) {
+          var span = document.createElement('span');
+          span.className = 'rw';
+          span.textContent = words[w];
+          host.appendChild(span);
+          if (w < words.length - 1) host.appendChild(document.createTextNode(' '));
+        }
+        hio.observe(h);
+        return true;
+      }
+
       // Collect targets: every section, plus its meaningful direct children (staggered).
+      // Direct-child headings get word animation instead of the block fade.
       function collectTargets() {
         var targets = [];
         var sections = document.querySelectorAll('section');
@@ -59,6 +203,7 @@
           for (var i = 0; i < kids.length; i++) {
             var k = kids[i];
             if (k.getBoundingClientRect().height < 8) continue;
+            if (/^H[1-3]$/.test(k.tagName) && prepHeading(k)) { continue; }
             step += 1;
             targets.push({ el: k, delay: Math.min(step * 90, 540) });
           }
@@ -79,6 +224,105 @@
           if (t.delay) el.setAttribute('data-reveal-delay', t.delay);
           io.observe(el);
         });
+        // Word-animate every section heading (incl. nested ones the loop skipped).
+        var headings = document.querySelectorAll('section h1, section h2, section h3');
+        for (var i = 0; i < headings.length; i++) { prepHeading(headings[i]); }
+
+        setupTimeline();
+      }
+
+      // --- Journey "pipeline": a progress line that fills as you scroll, lighting
+      // up each milestone (icon + text) the moment the line reaches it. ---
+      function setupTimeline() {
+        if (window.__tlReady) return;
+
+        // Find the timeline: the wrapper holding the static vertical rule + items.
+        var journey = null;
+        var sections = document.querySelectorAll('section');
+        for (var s = 0; s < sections.length; s++) {
+          if (/Our Journey/i.test(sections[s].textContent)) { journey = sections[s]; break; }
+        }
+        if (!journey) return;
+
+        var wrap = null, rule = null;
+        var candidates = journey.querySelectorAll('div');
+        for (var c = 0; c < candidates.length; c++) {
+          var kids = candidates[c].children;
+          for (var k = 0; k < kids.length; k++) {
+            var st = window.getComputedStyle(kids[k]);
+            // the static rule: absolutely positioned, ~2px wide, taller than 100px
+            if (st.position === 'absolute' && kids[k].children.length === 0 &&
+                kids[k].getBoundingClientRect().width <= 4 &&
+                kids[k].getBoundingClientRect().height > 100) {
+              wrap = candidates[c]; rule = kids[k]; break;
+            }
+          }
+          if (wrap) break;
+        }
+        if (!wrap || !rule) return;
+
+        var items = [];
+        for (var i = 0; i < wrap.children.length; i++) {
+          var it = wrap.children[i];
+          if (it === rule) continue;
+          if (!it.querySelector('h3')) continue;
+          items.push(it);
+        }
+        if (!items.length) return;
+
+        window.__tlReady = true;
+
+        // Progress line sits exactly over the static rule.
+        var rs = window.getComputedStyle(rule);
+        var prog = document.createElement('div');
+        prog.className = 'tl-progress';
+        prog.style.left = rs.left;
+        prog.style.top = rs.top;
+        var head = document.createElement('span');
+        head.className = 'tl-head';
+        prog.appendChild(head);
+        wrap.appendChild(prog);
+
+        items.forEach(function (it) {
+          it.classList.add('tl-item');
+          var icon = it.querySelector('svg');
+          if (icon) icon.classList.add('tl-icon');
+        });
+
+        var ticking = false;
+        function update() {
+          ticking = false;
+          var wrapRect = wrap.getBoundingClientRect();
+          var ruleRect = rule.getBoundingClientRect();
+          var vh = window.innerHeight || document.documentElement.clientHeight;
+          var anchor = vh * 0.62;              // the "read line" of the viewport
+          var filled = anchor - ruleRect.top;  // how far down the rule we've read
+          var total = ruleRect.height;
+          if (total <= 0) return;
+
+          var p = Math.max(0, Math.min(1, filled / total));
+          prog.style.height = (p * total) + 'px';
+          if (p > 0.01 && p < 0.995) prog.classList.add('tl-live');
+          else prog.classList.remove('tl-live');
+
+          var lineBottom = ruleRect.top + p * total;
+          items.forEach(function (it) {
+            var r = it.getBoundingClientRect();
+            var iconEl = it.querySelector('svg');
+            var markY = iconEl ? iconEl.getBoundingClientRect().top + iconEl.getBoundingClientRect().height / 2
+                               : r.top + 20;
+            if (lineBottom >= markY) it.classList.add('tl-item-on');
+            else it.classList.remove('tl-item-on');
+          });
+          void wrapRect;
+        }
+
+        function onScroll() {
+          if (!ticking) { ticking = true; requestAnimationFrame(update); }
+        }
+        window.addEventListener('scroll', onScroll, { passive: true });
+        window.addEventListener('resize', onScroll);
+        update();
       }
 
       // Wait until layout has truly settled. Section count alone isn't enough —
