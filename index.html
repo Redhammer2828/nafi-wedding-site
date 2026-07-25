@@ -35,6 +35,7 @@
     (function () {
       var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       if (reduce) return;
+
       var io = new IntersectionObserver(function (entries) {
         entries.forEach(function (e) {
           if (e.isIntersecting) {
@@ -45,52 +46,68 @@
             io.unobserve(el);
           }
         });
-      }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
+      }, { threshold: 0.14, rootMargin: '0px 0px -12% 0px' });
 
-      function tag(el, delay) {
-        if (el.__revealed) return;
-        el.__revealed = true;
-        el.classList.add('reveal-init');
-        if (delay) el.setAttribute('data-reveal-delay', delay);
-        io.observe(el);
+      // Collect targets: every section, plus its meaningful direct children (staggered).
+      function collectTargets() {
+        var targets = [];
+        var sections = document.querySelectorAll('section');
+        for (var s = 0; s < sections.length; s++) {
+          var sec = sections[s];
+          targets.push({ el: sec, delay: 0 });
+          var kids = sec.children, step = 0;
+          for (var i = 0; i < kids.length; i++) {
+            var k = kids[i];
+            if (k.getBoundingClientRect().height < 8) continue;
+            step += 1;
+            targets.push({ el: k, delay: Math.min(step * 90, 540) });
+          }
+        }
+        return targets;
       }
 
-      function scan() {
-        var sections = document.querySelectorAll('section');
-        sections.forEach(function (sec) {
-          if (sec.__scanned) return;
-          sec.__scanned = true;
-          tag(sec, 0);
-          // stagger direct children (cards, headings, images) inside each section
-          var kids = sec.children;
-          var i, step = 0;
-          for (i = 0; i < kids.length; i++) {
-            var k = kids[i];
-            if (k.offsetHeight < 8) continue;
-            step += 1;
-            tag(k, Math.min(step * 90, 540));
-          }
+      // Tag every target hidden, then hand ALL of them to the IntersectionObserver.
+      // The observer alone decides what is on-screen now (reveals) vs below the
+      // fold (stays hidden until scrolled into view). No position guessing.
+      function activate() {
+        var targets = collectTargets();
+        targets.forEach(function (t) {
+          var el = t.el;
+          if (el.__revealed) return;
+          el.__revealed = true;
+          el.classList.add('reveal-init');
+          if (t.delay) el.setAttribute('data-reveal-delay', t.delay);
+          io.observe(el);
         });
       }
 
-      function boot() {
-        scan();
-        var n = 0;
+      // Wait until layout has truly settled. Section count alone isn't enough —
+      // images/fonts load late and grow the page, shifting elements. Poll until
+      // BOTH section count and full page height are stable, THEN activate once.
+      function waitStableThenActivate() {
+        var lastN = -1, lastH = -1, stableTicks = 0, ticks = 0;
         var iv = setInterval(function () {
-          scan();
-          if (++n > 40) clearInterval(iv); // ~10s of rescans for late JS render
-        }, 250);
-        if (window.MutationObserver) {
-          new MutationObserver(scan).observe(document.body, { childList: true, subtree: true });
-        }
+          var n = document.querySelectorAll('section').length;
+          var h = document.documentElement.scrollHeight;
+          ticks++;
+          if (n > 0 && n === lastN && h === lastH) {
+            stableTicks++;
+          } else {
+            stableTicks = 0;
+          }
+          lastN = n; lastH = h;
+          if ((n > 0 && stableTicks >= 3) || ticks > 75) { // settled ~600ms, or ~7.5s cap
+            clearInterval(iv);
+            activate();
+          }
+        }, 200);
       }
 
-      if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', boot);
+      if (document.readyState === 'complete') {
+        waitStableThenActivate();
       } else {
-        boot();
+        window.addEventListener('load', waitStableThenActivate);
       }
-      window.addEventListener('load', scan);
     })();
   </script>
 </head>
